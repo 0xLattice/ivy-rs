@@ -33,6 +33,9 @@ pub struct Connection<S> {
     read_from: usize,
     /// Framed records not yet written.
     outbound: Vec<u8>,
+    /// Records were written and the stream not yet flushed: a stream that
+    /// buffers (`BufWriter`, TLS) may still hold them.
+    needs_flush: bool,
 }
 
 /// How much one read may add to the inbound buffer.
@@ -53,9 +56,11 @@ where
         let limit = config.metadata.max_frame_size;
         let (initiator, hello) = Initiator::start(config, expected, &mut OsRng).map_err(refused)?;
         stream.write_all(&frame(&hello)).await?;
+        stream.flush().await?;
         let reply = read_frame(&mut stream, limit).await?;
         let (session, finish) = initiator.receive(&reply).map_err(refused)?;
         stream.write_all(&frame(&finish)).await?;
+        stream.flush().await?;
         Ok(Connection::new(stream, session))
     })
     .await
@@ -79,6 +84,7 @@ where
             .receive(&hello, accepts, &mut OsRng)
             .map_err(refused)?;
         stream.write_all(&frame(&reply)).await?;
+        stream.flush().await?;
         let finish = read_frame(&mut stream, limit).await?;
         let session = waiting.receive(&finish).map_err(refused)?;
         Ok(Connection::new(stream, session))
@@ -96,6 +102,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
             inbound: Vec::new(),
             read_from: 0,
             outbound: Vec::new(),
+            needs_flush: false,
         }
     }
 
@@ -138,7 +145,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
                 continue;
             }
             self.make_room();
-            if self.outbound.is_empty() {
+            if self.outbound.is_empty() && !self.needs_flush {
                 self.read().await?;
                 continue;
             }
@@ -147,7 +154,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
             // branch either completes or does nothing, so the one dropped
             // loses nothing.
             tokio::select! {
-                written = self.writer.write(&self.outbound) => self.wrote(written?).await?,
+                written = write_some(&mut self.writer, &mut self.outbound, &mut self.needs_flush) => written?,
                 read = self.reader.read_buf(&mut self.inbound) => {
                     if read? == 0 {
                         return Err(io::ErrorKind::UnexpectedEof.into());
@@ -163,23 +170,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         Ok(())
     }
 
-    /// Writes queued records. Each write either lands or is not taken from
-    /// the queue, so cancelling this loses nothing.
+    /// Writes queued records and flushes the stream. Cancelling this
+    /// loses nothing: the next call carries on.
     async fn flush(&mut self) -> io::Result<()> {
-        while !self.outbound.is_empty() {
-            let written = self.writer.write(&self.outbound).await?;
-            self.wrote(written).await?;
-        }
-        Ok(())
-    }
-
-    async fn wrote(&mut self, written: usize) -> io::Result<()> {
-        if written == 0 {
-            return Err(io::ErrorKind::WriteZero.into());
-        }
-        self.outbound.drain(..written);
-        if self.outbound.is_empty() {
-            self.writer.flush().await?;
+        while !self.outbound.is_empty() || self.needs_flush {
+            write_some(&mut self.writer, &mut self.outbound, &mut self.needs_flush).await?;
         }
         Ok(())
     }
@@ -196,11 +191,14 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
             frame_length(*header, self.session.max_inbound_frame_size()).ok_or_else(|| {
                 io::Error::new(io::ErrorKind::InvalidData, "frame length out of range")
             })?;
-        let Some(record) = unread.get(4..4 + length) else {
+        let end = 4usize.checked_add(length).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidData, "frame length out of range")
+        })?;
+        let Some(record) = unread.get(4..end) else {
             return Ok(None);
         };
         let record = record.to_vec();
-        self.read_from += 4 + length;
+        self.read_from += end;
         Ok(Some(record))
     }
 
@@ -225,6 +223,28 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
         }
         Ok(())
     }
+}
+
+/// One step of writing `outbound`: a write, or once it is empty, a flush.
+/// A write either lands or is not taken from the queue, and the flag stays
+/// set until a flush completes, so cancelling this loses nothing.
+async fn write_some<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    outbound: &mut Vec<u8>,
+    needs_flush: &mut bool,
+) -> io::Result<()> {
+    if outbound.is_empty() {
+        writer.flush().await?;
+        *needs_flush = false;
+        return Ok(());
+    }
+    let written = writer.write(outbound).await?;
+    if written == 0 {
+        return Err(io::ErrorKind::WriteZero.into());
+    }
+    outbound.drain(..written);
+    *needs_flush = true;
+    Ok(())
 }
 
 /// One frame, during the handshake: `connect` and `accept` run whole or not
@@ -259,7 +279,7 @@ async fn timed<T>(handshake: impl std::future::Future<Output = io::Result<T>>) -
 mod tests {
     use super::*;
     use ed25519_dalek::SigningKey;
-    use tokio::io::{duplex, DuplexStream};
+    use tokio::io::{duplex, BufWriter, DuplexStream};
     use tokio::time::timeout;
 
     fn config(byte: u8) -> Config {
@@ -427,6 +447,41 @@ mod tests {
             // Refused on the header alone, before any body was read.
             assert!(listener.inbound.capacity() <= 2 * READ_CHUNK);
         }
+    }
+
+    #[tokio::test]
+    async fn buffered_streams_are_flushed_even_after_a_cancelled_send() {
+        let (a, b) = (config(1), config(2));
+        let (left, right) = duplex(1024);
+        let (left, right) = (
+            BufWriter::with_capacity(1 << 20, left),
+            BufWriter::with_capacity(1 << 20, right),
+        );
+        let (dialer, listener) = timeout(Duration::from_secs(5), async {
+            tokio::join!(connect(left, &a, b.peer_key()), accept(right, &b, |_| true))
+        })
+        .await
+        .expect("the handshake is flushed");
+        let (mut dialer, mut listener) = (dialer.unwrap(), listener.unwrap());
+
+        // The whole message fits the stream's buffer: the send is cancelled
+        // while flushing, with nothing left in the queue.
+        let payload = vec![7; 100_000];
+        assert!(
+            timeout(Duration::from_millis(50), dialer.send("big", &payload))
+                .await
+                .is_err()
+        );
+        assert!(dialer.outbound.is_empty());
+        let (_, received) = timeout(Duration::from_secs(5), async {
+            tokio::join!(
+                async { _ = timeout(Duration::from_secs(2), dialer.recv()).await },
+                listener.recv()
+            )
+        })
+        .await
+        .expect("the stranded bytes are flushed");
+        assert_eq!(received.unwrap(), ("big".to_owned(), payload));
     }
 
     #[tokio::test]
