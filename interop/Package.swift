@@ -17,6 +17,8 @@ let package = Package(
                 .product(name: "Ivy", package: "Ivy2"),
                 "Tally",
                 .product(name: "Crypto", package: "swift-crypto"),
-            ]),
+            ],
+            // Linux's `stdout` is a mutable global, which Swift 6 mode rejects.
+            swiftSettings: [.swiftLanguageMode(.v5)]),
     ]
 )
