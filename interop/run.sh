@@ -6,7 +6,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo build -q --example interop -p ivy
-(cd interop && swift build -q)
+# Not -q: that hides the compiler errors too.
+(cd interop && swift build 2>&1 | { grep -vE '^\[[0-9]+/[0-9]+\] ' || true; })
 rust=target/debug/examples/interop
 swift=interop/.build/debug/node
 port=${IVY_INTEROP_PORT:-47500}
