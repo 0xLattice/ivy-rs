@@ -85,8 +85,13 @@ async fn main() {
                 }
             };
             check(true, "session authenticated");
+            // Both implementations advertise the address they listen on.
+            let listening = ListenAddress {
+                host: "127.0.0.1".into(),
+                port,
+            };
             check(
-                connection.peer_metadata().max_frame_size >= ivy::MIN_FRAME_SIZE,
+                connection.peer_metadata().listen_addresses == [listening],
                 "peer metadata received",
             );
             let payload: Vec<u8> = (0..200_000u32).map(|i| i as u8).collect();

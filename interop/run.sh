@@ -13,7 +13,10 @@ rust=target/debug/examples/interop
 swift=interop/.build/debug/node
 port=${IVY_INTEROP_PORT:-47500}
 
-if ! diff <("$rust" keybits) <("$swift" keybits) >/dev/null; then
+# Captured first: a failure inside <(...) would escape set -e.
+rust_bits=$("$rust" keybits)
+swift_bits=$("$swift" keybits)
+if [[ $(wc -l <<<"$rust_bits") -ne 256 || $rust_bits != "$swift_bits" ]]; then
   echo "interop: key work bits differ from Tally's" >&2
   exit 1
 fi

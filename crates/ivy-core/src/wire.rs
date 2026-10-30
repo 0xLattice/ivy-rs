@@ -221,7 +221,8 @@ impl PeerMetadata {
             // Swift sorts and dedups hosts as Strings, by canonical
             // equivalence; for ASCII that is byte order, which this uses. A
             // non-ASCII host could be canonical to one side and not the
-            // other, so it is refused.
+            // other, so it is refused. A Swift peer advertising one (an
+            // internationalized external address) cannot connect.
             if !host.is_ascii() {
                 return None;
             }

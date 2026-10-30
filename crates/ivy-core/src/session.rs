@@ -704,6 +704,33 @@ mod tests {
     }
 
     #[test]
+    fn hellos_for_another_version_or_a_relayed_route_are_malformed() {
+        let (a, b) = (config(1), config(2));
+        // Offsets in a hello record: magic, tag, length, then the version
+        // and the route binding.
+        let (version, route) = (4 + 1 + 4, 4 + 1 + 4 + 2);
+        for offset in [version + 1, route] {
+            let (_, mut hello) = Initiator::start(&a, b.peer_key(), &mut OsRng).unwrap();
+            hello[offset] ^= 1;
+            assert_eq!(
+                Responder::new(&b)
+                    .receive(&hello, |_| true, &mut OsRng)
+                    .err(),
+                Some(SessionError::Malformed)
+            );
+            let (initiator, hello) = Initiator::start(&a, b.peer_key(), &mut OsRng).unwrap();
+            let (_, mut reply) = Responder::new(&b)
+                .receive(&hello, |_| true, &mut OsRng)
+                .unwrap();
+            reply[offset] ^= 1;
+            assert_eq!(
+                initiator.receive(&reply).err(),
+                Some(SessionError::Malformed)
+            );
+        }
+    }
+
+    #[test]
     fn a_node_will_not_handshake_with_itself() {
         let b = config(2);
         let (_, hello) = Initiator::start(&b, b.peer_key(), &mut OsRng).unwrap();

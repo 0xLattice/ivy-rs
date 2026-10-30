@@ -9,7 +9,7 @@ repository.workspace = true
 [dependencies]
 ivy-core = { path = "../ivy-core" }
 rand_core = { version = "0.6", features = ["getrandom"] }
-tokio = { version = "1", features = ["io-util", "net", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "time"] }
 
 [dev-dependencies]
 ed25519-dalek = "2"
