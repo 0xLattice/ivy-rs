@@ -24,7 +24,7 @@ jobs:
   # This port and Swift Ivy against each other over TCP, on Linux.
   swift-interop:
     runs-on: ubuntu-24.04
-    container: swift:6.1-jammy
+    container: swift:6.4.0
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
