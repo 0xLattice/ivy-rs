@@ -24,6 +24,15 @@ const DATA_DOMAIN: &str = "ivy.session.data.v1";
 const INITIATOR_HELLO_OVERHEAD: usize = 2 + 4 * 32 + 4;
 const RESPONDER_HELLO_OVERHEAD: usize = 2 + 5 * 32 + 4;
 
+/// The smallest frame limit a node may set: room for the largest legal
+/// handshake record, even relayed (inside a relay packet inside a data
+/// record). Swift Ivy refuses a smaller `protocolMaxFrameSize` too.
+pub const MIN_FRAME_SIZE: u32 = (PeerMetadata::MAX_ENCODED_SIZE
+    + RESPONDER_HELLO_OVERHEAD
+    + (4 + 1 + 4 + 64)
+    + (1 + 32 + 4)
+    + (4 + 1 + 32 + 8 + 4 + 64)) as u32;
+
 /// Why a handshake or session ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SessionError {
@@ -38,6 +47,9 @@ pub enum SessionError {
     /// Nothing more can be sent: the message is too large for the peer, or
     /// the sequence numbers are spent.
     CannotSend,
+    /// This node's own `Config` cannot work: its frame limit is below
+    /// `MIN_FRAME_SIZE`, or its metadata does not encode.
+    InvalidConfig,
 }
 
 /// This node's identity and what it tells peers.
@@ -146,8 +158,13 @@ fn finish_body(session_id: &[u8; 32], sender: &PeerKey, receiver: &PeerKey) -> V
     .concat()
 }
 
+/// This node's metadata, encoded; checked here because both sides of a
+/// handshake send it first.
 fn metadata_bytes(config: &Config) -> Result<Vec<u8>, SessionError> {
-    config.metadata.encode().ok_or(SessionError::CannotSend)
+    if config.max_frame_size() < MIN_FRAME_SIZE {
+        return Err(SessionError::InvalidConfig);
+    }
+    config.metadata.encode().ok_or(SessionError::InvalidConfig)
 }
 
 struct InitiatorHello {
@@ -602,6 +619,130 @@ mod tests {
         );
     }
 
+    /// A responder hello with any fields, signed by `signer`.
+    fn forged_reply(
+        signer: &Config,
+        responder: PeerKey,
+        initiator: PeerKey,
+        initiator_nonce: [u8; 32],
+    ) -> Vec<u8> {
+        let hello = ResponderHello {
+            responder,
+            initiator,
+            initiator_nonce,
+            metadata: PeerMetadata::default(),
+        };
+        let encoded = hello.encode(&[7; 32], &[0, 0]).unwrap();
+        let signature = signer.sign(HELLO_DOMAIN, &encoded);
+        SignedHello { encoded, signature }.record(2).unwrap()
+    }
+
+    /// A finish with any fields, signed by `signer`.
+    fn forged_finish(
+        signer: &Config,
+        id: &[u8; 32],
+        sender: PeerKey,
+        receiver: PeerKey,
+    ) -> Vec<u8> {
+        let body = finish_body(id, &sender, &receiver);
+        let signature = signer.sign(FINISH_DOMAIN, &body);
+        [MAGIC.as_slice(), &[3], &body, &signature].concat()
+    }
+
+    #[test]
+    fn the_dialer_accepts_only_the_key_it_dialed() {
+        let (a, b, m) = (config(1), config(2), config(3));
+        let answer = |reply: &dyn Fn(&Initiator) -> Vec<u8>| {
+            let (initiator, _) = Initiator::start(&a, b.peer_key(), &mut OsRng).unwrap();
+            let record = reply(&initiator);
+            initiator.receive(&record).err()
+        };
+        // The honest answer, built the same way, is accepted.
+        assert_eq!(
+            answer(&|i| forged_reply(&b, b.peer_key(), a.peer_key(), i.nonce)),
+            None
+        );
+        // m answers in its own name, correctly signed: still not b.
+        assert_eq!(
+            answer(&|i| forged_reply(&m, m.peer_key(), a.peer_key(), i.nonce)),
+            Some(SessionError::Rejected)
+        );
+        // m answers in b's name: the signature is not b's.
+        assert_eq!(
+            answer(&|i| forged_reply(&m, b.peer_key(), a.peer_key(), i.nonce)),
+            Some(SessionError::Rejected)
+        );
+        // b's answer, but to a hello from someone else.
+        assert_eq!(
+            answer(&|i| forged_reply(&b, b.peer_key(), m.peer_key(), i.nonce)),
+            Some(SessionError::Rejected)
+        );
+    }
+
+    #[test]
+    fn the_listener_accepts_only_a_finish_from_the_initiator_to_itself() {
+        let (a, b, m) = (config(1), config(2), config(3));
+        let waiting = || {
+            let (_, hello) = Initiator::start(&a, b.peer_key(), &mut OsRng).unwrap();
+            Responder::new(&b)
+                .receive(&hello, |_| true, &mut OsRng)
+                .unwrap()
+                .0
+        };
+        let finish = |signer: &Config, sender: &Config, receiver: &Config| {
+            let waiting = waiting();
+            let record = forged_finish(signer, &waiting.id, sender.peer_key(), receiver.peer_key());
+            waiting.receive(&record).err()
+        };
+        assert_eq!(finish(&a, &a, &b), None);
+        // m replays a's hello and closes the handshake itself.
+        assert_eq!(finish(&m, &m, &b), Some(SessionError::Rejected));
+        // m claims to be a.
+        assert_eq!(finish(&m, &a, &b), Some(SessionError::Rejected));
+        // a's finish, but addressed to someone else.
+        assert_eq!(finish(&a, &a, &m), Some(SessionError::Rejected));
+    }
+
+    #[test]
+    fn a_node_will_not_handshake_with_itself() {
+        let b = config(2);
+        let (_, hello) = Initiator::start(&b, b.peer_key(), &mut OsRng).unwrap();
+        assert_eq!(
+            Responder::new(&b)
+                .receive(&hello, |_| true, &mut OsRng)
+                .err(),
+            Some(SessionError::Rejected)
+        );
+    }
+
+    #[test]
+    fn the_dialer_refuses_a_responder_below_its_work_floor() {
+        let mut a = config(1);
+        let b = config(2);
+        a.min_peer_key_bits = b.peer_key().work_bits() + 1;
+        let (initiator, hello) = Initiator::start(&a, b.peer_key(), &mut OsRng).unwrap();
+        let (_, reply) = Responder::new(&b)
+            .receive(&hello, |_| true, &mut OsRng)
+            .unwrap();
+        assert_eq!(
+            initiator.receive(&reply).err(),
+            Some(SessionError::InsufficientKeyWork)
+        );
+    }
+
+    #[test]
+    fn a_frame_limit_too_small_for_a_handshake_is_refused() {
+        let mut a = config(1);
+        let b = config(2);
+        a.metadata = PeerMetadata::new(Vec::new(), MIN_FRAME_SIZE - 1);
+        assert_eq!(
+            Initiator::start(&a, b.peer_key(), &mut OsRng).err(),
+            Some(SessionError::InvalidConfig)
+        );
+        a.metadata = PeerMetadata::new(Vec::new(), MIN_FRAME_SIZE);
+        assert!(Initiator::start(&a, b.peer_key(), &mut OsRng).is_ok());
+    }
+
     #[test]
     fn a_reply_to_another_hello_is_rejected() {
         let (a, b) = (config(1), config(2));
@@ -738,15 +879,15 @@ mod tests {
     fn messages_larger_than_the_peer_accepts_are_not_sealed() {
         let a = config(1);
         let mut b = config(2);
-        b.metadata = PeerMetadata::new(Vec::new(), 1024);
+        b.metadata = PeerMetadata::new(Vec::new(), MIN_FRAME_SIZE);
         let (mut dialer, _) = handshake(&a, &b);
         let small = Message::PeerMessage {
             topic: "t".into(),
-            payload: vec![0; 800],
+            payload: vec![0; MIN_FRAME_SIZE as usize - 200],
         };
         let large = Message::PeerMessage {
             topic: "t".into(),
-            payload: vec![0; 1000],
+            payload: vec![0; MIN_FRAME_SIZE as usize],
         };
         assert!(dialer.seal(&small).is_ok());
         assert_eq!(dialer.seal(&large), Err(SessionError::CannotSend));

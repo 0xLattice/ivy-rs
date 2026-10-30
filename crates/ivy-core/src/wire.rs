@@ -129,6 +129,9 @@ impl PeerKey {
         count
     }
 
+    /// Strict Ed25519 verification. Swift Ivy on Linux (BoringSSL) also
+    /// accepts signatures by small-order keys, which anyone can forge;
+    /// this refuses them.
     pub(crate) fn verifies(&self, message: &[u8], signature: &[u8; 64]) -> bool {
         VerifyingKey::from_bytes(&self.0)
             .map(|key| {
@@ -172,8 +175,8 @@ impl PeerMetadata {
     const MAX_LISTEN_ADDRESSES: usize = 16;
 
     pub fn new(mut listen_addresses: Vec<ListenAddress>, max_frame_size: u32) -> Self {
-        // Hosts order by bytes. Swift orders Strings by canonical
-        // equivalence, which agrees for the ASCII hosts Ivy advertises.
+        // Hosts order by bytes, which is Swift's order for the ASCII hosts
+        // this port accepts.
         listen_addresses.sort();
         listen_addresses.dedup();
         Self {
@@ -189,7 +192,7 @@ impl PeerMetadata {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&(self.listen_addresses.len() as u16).to_be_bytes());
         for address in &self.listen_addresses {
-            if address.host.len() > MAX_STRING_LENGTH {
+            if address.host.len() > MAX_STRING_LENGTH || !address.host.is_ascii() {
                 return None;
             }
             put_data(&mut bytes, address.host.as_bytes())?;
@@ -215,6 +218,13 @@ impl PeerMetadata {
         let mut addresses = Vec::with_capacity(count);
         for _ in 0..count {
             let host = text(reader.data(MAX_STRING_LENGTH)?)?.to_owned();
+            // Swift sorts and dedups hosts as Strings, by canonical
+            // equivalence; for ASCII that is byte order, which this uses. A
+            // non-ASCII host could be canonical to one side and not the
+            // other, so it is refused.
+            if !host.is_ascii() {
+                return None;
+            }
             let port = reader.u16()?;
             addresses.push(ListenAddress { host, port });
         }
@@ -402,6 +412,22 @@ mod tests {
     }
 
     #[test]
+    fn metadata_hosts_must_be_ascii() {
+        let host = ListenAddress {
+            host: "\u{e9}".into(),
+            port: 1,
+        };
+        assert_eq!(
+            PeerMetadata::new(vec![host.clone()], DEFAULT_MAX_FRAME_SIZE).encode(),
+            None
+        );
+        let mut bytes = vec![0, 1];
+        put_data(&mut bytes, host.host.as_bytes()).unwrap();
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        assert_eq!(PeerMetadata::decode(&bytes), None);
+    }
+
+    #[test]
     fn keys_parse_raw_and_multikey_hex() {
         let key = key(1);
         assert_eq!(PeerKey::from_hex(&key.hex()), Some(key));
@@ -410,11 +436,19 @@ mod tests {
     }
 
     #[test]
-    fn work_bits_count_from_the_last_hash_byte() {
-        let key = key(2);
-        let hash = Sha256::digest(key.hex().as_bytes());
-        let last_nonzero = hash.iter().rev().position(|b| *b != 0).unwrap();
-        let expected = 8 * last_nonzero as u32 + hash[31 - last_nonzero].trailing_zeros();
-        assert_eq!(key.work_bits(), expected);
+    fn work_bits_match_tally() {
+        // From Swift Tally's KeyDifficulty.trailingZeroBits, for the keys
+        // seeded with 32 copies of each byte. interop/run.sh compares all 256.
+        for (byte, bits) in [
+            (0, 1),
+            (1, 0),
+            (4, 2),
+            (13, 4),
+            (108, 6),
+            (156, 8),
+            (165, 7),
+        ] {
+            assert_eq!(key(byte).work_bits(), bits, "seed byte {byte}");
+        }
     }
 }

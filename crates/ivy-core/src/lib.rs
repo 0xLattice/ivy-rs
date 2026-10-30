@@ -8,7 +8,9 @@
 mod session;
 mod wire;
 
-pub use session::{AwaitingFinish, Config, Initiator, Responder, Session, SessionError};
+pub use session::{
+    AwaitingFinish, Config, Initiator, Responder, Session, SessionError, MIN_FRAME_SIZE,
+};
 pub use wire::{
     ListenAddress, Message, PeerKey, PeerMetadata, DEFAULT_MAX_FRAME_SIZE, MAX_STRING_LENGTH,
 };
