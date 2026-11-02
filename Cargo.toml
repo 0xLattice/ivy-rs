@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["crates/ivy-core", "crates/ivy", "crates/ivy-tally", "crates/ivy-websocket", "crates/ivy-host", "crates/ivy-wasm", "crates/ivy-simulation"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/0xLattice/ivy-rs"

@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main, codex/rust-platform-port]
+  pull_request:
+    branches: [main, codex/rust-platform-port]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  RUSTUP_TOOLCHAIN: '1.96.0'
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: ivy-rs
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ivy-rs
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: 0xLattice/tally-rs
+          ref: 6d991d3fdd8ead8673b8aa4479d9e950a16f02e3
+          path: tally-rs
+          persist-credentials: false
+      - run: rustup toolchain install 1.96.0 --profile minimal --component rustfmt --component clippy
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --all-targets --locked
+      - run: rustup target add wasm32-unknown-unknown
+      - run: cargo check -p ivy-wasm --target wasm32-unknown-unknown --locked
+
+  # This port and pinned Swift Ivy against each other over TCP, on Linux.
+  swift-interop:
+    runs-on: ubuntu-24.04
+    container: swift:6.4.0
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: ivy-rs
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ivy-rs
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: 0xLattice/tally-rs
+          ref: 6d991d3fdd8ead8673b8aa4479d9e950a16f02e3
+          path: tally-rs
+          persist-credentials: false
+      - name: Install Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update -qq && apt-get install -y -qq curl gcc
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.96.0
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - run: bash interop/run.sh

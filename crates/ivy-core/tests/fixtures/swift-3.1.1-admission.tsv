@@ -1,0 +1,37 @@
+cancel.caller	completed:1:cancelled
+cancel.clock-does-not-release	
+cancel.inbound-blocked	close:10
+cancel.other-peer	completed:3:identityVerificationFailed
+cancel.reserve	dial
+cancel.same-peer	completed:2:connectionInProgress
+cancel.transport-failed	
+disconnect.command	
+disconnect.late-success	close:12|completed:6:cancelled
+disconnect.reserve	dial
+errors.invalid-before-stopped	completed:81:invalidPeerKey
+errors.mode-before-host	close:84|completed:87:peerOutsideMode
+errors.mode-before-stopped	completed:86:peerOutsideMode
+errors.stopped	completed:80:notRunning
+errors.supplied-empty-host	close:82|completed:84:streamHasNoObservedHost
+errors.supplied-invalid-key	close:83|completed:85:invalidPeerKey
+errors.supplied-no-host	close:81|completed:83:streamHasNoObservedHost
+errors.supplied-stopped	close:80|completed:82:notRunning
+observed.first	write
+observed.refuse-second	close:21|completed:21:identityVerificationFailed
+observed.reserve-first	dial
+observed.reserve-second	dial
+promotion.inbound-refused	close:50
+promotion.inbound-reserved	
+promotion.outbound-delivered	completed:60:connected
+promotion.outbound-wins	connected|write
+restart.abandoned-blocks	completed:5:connectionInProgress
+restart.late-success	close:11
+restart.reserve	dial
+restart.start	
+restart.stop	completed:4:cancelled
+supplied.duplicate-id	completed:30:connectionInProgress
+supplied.duplicate-peer	close:31|completed:32:connectionInProgress
+supplied.full	close:40|completed:41:identityVerificationFailed
+supplied.full-reservation	dial
+supplied.inbound	
+supplied.native-reservation	dial

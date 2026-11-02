@@ -1,0 +1,10 @@
+[package]
+name = "ivy-simulation"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[dependencies]
+ivy-core = { path = "../ivy-core" }
+ed25519-dalek = "2"
+sha2 = "0.10"

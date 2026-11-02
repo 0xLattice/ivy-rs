@@ -1,0 +1,12 @@
+{
+  "ivy_revision": "cc67fa9c4dd9f7566e13a70f9221af6313af88aa",
+  "source_sha256": {
+    "Sources/IvyCore/Core+Connect.swift": "f2cad7aa5399f6b5dd034165ba75a598543212e73c5c099e80ccfada415eef77",
+    "Sources/IvyCore/Core+Sessions.swift": "8824765d47afd3b5a1e0585c281ddfeac9717927338238d8c013f28127a1afb1",
+    "Sources/IvyCore/IvyCore.swift": "377d4b5a8d0944c09e37fb78668ae16041cdb075e980bc4c4da46f734f550a31"
+  },
+  "harness_sha256": "c6cb545a2ff34edc55f96ddc7e4f15a6da88907a00e30e8c35791bdef7a6b8a2",
+  "corpus_sha256": "e6a6584cba8824d899c6c7655cf50ca1b6ddae59f52e3bec6b8377037532e52c",
+  "cases": 37,
+  "method": "Actual unmodified IvyCore with real cryptographic sessions; normalized dial/write/close/connection/request outcomes."
+}

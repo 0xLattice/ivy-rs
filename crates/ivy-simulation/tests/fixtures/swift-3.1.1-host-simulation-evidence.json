@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "ivyRevision": "cc67fa9c4dd9f7566e13a70f9221af6313af88aa",
+  "effects": 12,
+  "semanticSHA256": "075acf1dfac71693a8b193ee695c040058f3befa353f61f006df703f76db14f7",
+  "swiftLegacyDigest": "f4ccf476251750ec084c88b12fcbaa820325ce6cc9ff414d30cd35154781d9e0",
+  "rustLegacyDigest": "c05f7177b147ce2020a431280f519b0a18d75aa5c3e43e3b73bb970b55d65c2a",
+  "normalization": "Exactly one case: peerConnected delivery token is omitted (Swift allocates an internal LinkID, Rust keys links by connection). Effect times, order, dial/connection/request IDs, peer key, session ID, frame limit and SHA256 of all wire bytes compared exactly. Only the fixture effect variants are supported; others fail.",
+  "harnessSHA256": {
+    "interop/Sources/simulation-digest/main.swift": "01aa762a5f0d45562d978540ba40743dc1ddabfe7eb34c6f4521daac36ab9f9f",
+    "crates/ivy-simulation/examples/trace-digest.rs": "f47b46bf667324b9f9c4a230fc457a1db3d6af31ec14de012c244852db2c336b",
+    "interop/simulation-digest.py": "dd8e8e099f4fed0abd52cf9b5b681da6837f6d68c5ef9c663cea5e0c45568215"
+  },
+  "swiftSourceSHA256": {
+    "Sources/IvySimulation/Simulation.swift": "a154e91f8f402b752ec80a172403b0ec1e656031c09a7e047fbc499f2dc99207",
+    "Sources/IvyCore/Core+Links.swift": "fd32f607f753d96c4ec1d8323403533837840d856b95fee1bb6c72e7784fddcf",
+    "Sources/IvyCore/Core+Sessions.swift": "8824765d47afd3b5a1e0585c281ddfeac9717927338238d8c013f28127a1afb1"
+  }
+}

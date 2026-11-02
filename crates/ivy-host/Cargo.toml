@@ -1,0 +1,12 @@
+[package]
+name = "ivy-host"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[dependencies]
+unicode-normalization = "0.1"
+ed25519-dalek = "2"
+ivy-core = { path = "../ivy-core" }
+[dev-dependencies]
+serde_json = "1"
