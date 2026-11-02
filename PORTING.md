@@ -44,6 +44,15 @@ Implemented:
   streams to Core. `run_with_transport` accepts custom async prepared transports,
   bounds connection futures by the coordinator deadline, and aborts preparation
   on cancellation. Public application request IDs remain separate from its work.
+  `run_with_supplied_shutdown` combines supplied streams with punch coordination
+  and out-of-band shutdown, including cancellation while delivery is backpressured.
+  `run_application_with_shutdown` exposes the ordinary Event/Effect interface and
+  follows the Lattice policy of upgrading relayed endpoints, then disconnecting
+  only the exact failed endpoint session. The carrier is retained. Supplied-stream
+  request IDs are remapped alongside ordinary application requests. Tests cover
+  authenticated supplied delivery, real TCP release under backpressure, successful
+  direct upgrades, and failed upgrades without carrier disconnection. This is
+  native runtime coverage; it does not establish browser-to-browser NAT traversal.
 - Core-integrated session-bound complete-Volume/bundle fetches and serving jobs:
   authorization/list/read callbacks, reserved archive budgets across requests,
   source cancellation retaining resource holds until callbacks finish, chunk

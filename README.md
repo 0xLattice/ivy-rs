@@ -13,6 +13,9 @@ Native entry points:
   a bounded channel, including `ivy_websocket::connect` / `accept` streams.
 - `ivy::punch_node::run` wraps node notifications and commands with automatic
   relay-to-direct TCP upgrades. Configure explicit candidate hosts or STUN discovery.
+- `ivy::punch_node::run_application_with_shutdown` retains the ordinary Event/Effect
+  interface, supplied streams, and out-of-band shutdown while upgrading relayed
+  endpoints or disconnecting their exact session when upgrade fails.
 - `ivy_core::core::Core::step` is the deterministic event/effect boundary for
   other runtimes. Acknowledge `PeerConnected` and `Deliver` tokens to release
   charged input and resume reads. Content jobs are completed by the host store.
